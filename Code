@@ -1,0 +1,125 @@
+/*
+   Complete Arduino UNO pH Meter
+   Display: 5461AS (4-digit, Common Cathode)
+   Sensor: Analog output → A0
+   Shows pH with 2 decimals: X.XX
+*/
+
+// ------------------------
+// PIN CONFIGURATION
+// ------------------------
+
+// Segment pins: a b c d e f g dp
+int seg[8] = {2, 3, 4, 5, 6, 7, 8, 9};
+
+// Digit cathodes D1–D4 (common-cathode)
+int digit[4] = {10, 11, 12, 13};
+
+// pH sensor input
+const int phPin = A0;
+
+// ------------------------
+// SEGMENT LOOKUP TABLE (common-cathode)
+// ------------------------
+byte segCode[10] = {
+  0b00111111, //0
+  0b00000110, //1
+  0b01011011, //2
+  0b01001111, //3
+  0b01100110, //4
+  0b01101101, //5
+  0b01111101, //6
+  0b00000111, //7
+  0b01111111, //8
+  0b01101111  //9
+};
+
+// ------------------------
+// CALIBRATION (you MUST update these)
+// ------------------------
+// Measure voltage at pH 7 and pH 4 using Serial Monitor
+float cal_ph7_voltage = 2.50;
+float cal_ph4_voltage = 3.00;
+
+// ------------------------
+// DISPLAY A SINGLE DIGIT
+// ------------------------
+void displayDigit(int number, bool dp) {
+  byte code = number == -1 ? 0 : segCode[number];
+
+  for (int i = 0; i < 7; i++) {   // segments a–g
+    digitalWrite(seg[i], (code >> i) & 1);
+  }
+
+  // decimal point
+  digitalWrite(seg[7], dp ? HIGH : LOW);
+}
+
+// ------------------------
+// MULTIPLEX 4-DIGIT DISPLAY
+// ------------------------
+void displayNumber(float value) {
+  int d[4];
+  bool dp[4] = {false, false, false, false};
+
+  // Convert: 7.24 → 724
+  int scaled = value * 100;
+  if (scaled < 0) scaled = 0;
+  if (scaled > 9999) scaled = 9999;
+
+  d[0] = (scaled / 1000) % 10;
+  d[1] = (scaled / 100) % 10;
+  d[2] = (scaled / 10) % 10;
+  d[3] = scaled % 10;
+
+  // Format: X.XX
+  dp[1] = true;
+
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(digit[i], LOW);   // turn ON digit
+    displayDigit(d[i], dp[i]);     
+    delay(3);                       // brightness control
+    digitalWrite(digit[i], HIGH);  // turn OFF digit
+  }
+}
+
+// ------------------------
+// READ pH WITH Smoothing
+// ------------------------
+float readPH() {
+  long sum = 0;
+
+  // Take 40 samples to reduce noise
+  for (int i = 0; i < 40; i++) {
+    sum += analogRead(phPin);
+    delay(2);
+  }
+
+  float raw = sum / 40.0;
+  float voltage = raw * (5.0 / 1023.0);
+
+  // 2-point calibration calculation
+  float slope = (7.0 - 4.0) / (cal_ph7_voltage - cal_ph4_voltage);
+  float ph = 7.0 - slope * (voltage - cal_ph7_voltage);
+
+  return ph;
+}
+
+// ------------------------
+void setup() {
+  for (int i = 0; i < 8; i++) pinMode(seg[i], OUTPUT);
+  for (int i = 0; i < 4; i++) pinMode(digit[i], OUTPUT);
+
+  Serial.begin(9600);
+  Serial.println("pH Meter Ready.");
+}
+
+// ------------------------
+void loop() {
+  float phValue = readPH();
+
+  Serial.print("pH = ");
+  Serial.println(phValue);
+
+  displayNumber(phValue);  
+}
